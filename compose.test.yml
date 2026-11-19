@@ -1,0 +1,102 @@
+# Local test of the template (Daytona / any Docker host). Not used by Railway.
+# Railway Redis and the Railway Bucket are stood in for by redis and SeaweedFS (S3).
+x-appwrite-env: &appwrite-env
+  _APP_DOMAIN: localhost
+  _APP_DOMAIN_TARGET_CNAME: localhost
+  _APP_CONSOLE_DOMAIN: localhost
+  _APP_OPENSSL_KEY_V1: testkey0123456789abcdef0123456789abcdef0123456789abcdef0123456789
+  _APP_EXECUTOR_SECRET: testexecutorsecret
+  _APP_NOTIFICATIONS_TRACKING_SECRET: testtrackingsecret
+  _APP_GEO_SECRET: testgeosecret
+  _APP_GEO_ENDPOINT: http://geo/v1
+  _APP_AUTOGRAVITY_HOST: http://autogravity:8080
+  _APP_EXIFTOOL_HOST: http://exiftool:8080
+  _APP_REDIS_HOST: redis
+  _APP_REDIS_PORT: "6379"
+  _APP_REDIS_USER: ""
+  _APP_REDIS_PASS: ""
+  _APP_DB_HOST: postgresql
+  _APP_DB_SCHEMA: appwrite
+  _APP_DB_USER: appwrite
+  _APP_DB_PASS: testdbpass
+  _APP_USAGE_PASS: testchpass
+  _APP_CONNECTIONS_DB_USAGE: http://appwrite:testchpass@clickhouse:8123/appwrite
+  _APP_CONNECTIONS_DB_EXECUTIONS: http://appwrite:testchpass@clickhouse:8123/appwrite
+  _APP_STORAGE_S3_ENDPOINT: http://s3:8333
+  _APP_STORAGE_S3_ACCESS_KEY: testaccess
+  _APP_STORAGE_S3_SECRET: testsecretkey
+  _APP_STORAGE_S3_REGION: us-east-1
+  _APP_STORAGE_S3_BUCKET: appwrite
+  _APP_MIGRATION_HOST: appwrite-api
+  _APP_JOBS_ENDPOINT: http://appwrite-api
+  APPWRITE_API_HOST: appwrite-api
+
+services:
+  postgresql:
+    build: ./postgresql
+    environment: {POSTGRES_DB: appwrite, POSTGRES_USER: appwrite, POSTGRES_PASSWORD: testdbpass}
+    volumes: [pg:/var/lib/postgresql]
+  redis:
+    image: redis:7.4.7-alpine
+  clickhouse:
+    build: ./clickhouse
+    environment: {CLICKHOUSE_PASSWORD: testchpass}
+    volumes: [ch:/var/lib/clickhouse]
+    ulimits: {nofile: {soft: 262144, hard: 262144}}
+  s3:
+    image: chrislusf/seaweedfs:4.54
+    command: ["server", "-s3", "-s3.config=/etc/s3.json", "-dir=/data"]
+    configs: [{source: s3cfg, target: /etc/s3.json}]
+    volumes: [s3:/data]
+  s3init:
+    image: amazon/aws-cli:2.41.1
+    depends_on: [s3]
+    environment: {AWS_ACCESS_KEY_ID: testaccess, AWS_SECRET_ACCESS_KEY: testsecretkey, AWS_DEFAULT_REGION: us-east-1}
+    entrypoint: ["sh", "-c", "for i in $(seq 30); do aws --endpoint-url http://s3:8333 s3 mb s3://appwrite && exit 0; aws --endpoint-url http://s3:8333 s3 ls s3://appwrite && exit 0; sleep 2; done; exit 1"]
+  geo:
+    build: ./geo
+    environment: {GEO_SECRET: testgeosecret}
+  exiftool:
+    build: ./exiftool
+  autogravity:
+    build: ./autogravity
+  appwrite-api:
+    build: ./appwrite
+    environment: {<<: *appwrite-env, PORT: "80"}
+  appwrite-realtime:
+    build: ./appwrite
+    command: ["railway-start", "realtime"]
+    environment: {<<: *appwrite-env, PORT: "80"}
+  appwrite-worker:
+    build: ./appwrite
+    command: ["railway-start", "worker"]
+    environment: *appwrite-env
+  appwrite-scheduler:
+    build: ./appwrite
+    command: ["railway-start", "scheduler"]
+    environment: *appwrite-env
+  appwrite-maintenance:
+    build: ./appwrite
+    command: ["railway-start", "maintenance"]
+    environment: *appwrite-env
+  appwrite-interval:
+    build: ./appwrite
+    command: ["railway-start", "interval"]
+    environment: *appwrite-env
+  console:
+    build: ./console
+  router:
+    build: ./router
+    environment:
+      PORT: "8080"
+      APPWRITE_API: appwrite-api:80
+      APPWRITE_REALTIME: appwrite-realtime:80
+      APPWRITE_CONSOLE: console:3000
+    ports: ["8080:8080"]
+
+configs:
+  s3cfg:
+    content: |
+      {"identities":[{"name":"admin","credentials":[{"accessKey":"testaccess","secretKey":"testsecretkey"}],"actions":["Admin","Read","Write","List","Tagging"]}]}
+
+volumes: {pg: {}, ch: {}, s3: {}}
