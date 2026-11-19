@@ -9,3 +9,6 @@ ENV CLICKHOUSE_DB=appwrite \
 # Both files are copied unchanged from appwrite/appwrite at tag 2.7.3.
 COPY clickhouse-config.xml /etc/clickhouse-server/config.d/appwrite.xml
 COPY clickhouse-init.sh /docker-entrypoint-initdb.d/clickhouse-init.sh
+COPY listen.xml /etc/clickhouse-server/config.d/railway-listen.xml
+
+ENV PORT=8123
